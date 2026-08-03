@@ -1,0 +1,892 @@
+/*
+ * UI is plain DOM over the canvas rather than in-scene geometry: crisp text at
+ * any resolution, real accessibility semantics, and zero cost to the render
+ * pipeline. Everything is driven by CSS custom properties that the theme system
+ * rewrites when a course loads, so the interface recolours with the world.
+ */
+
+:root {
+  --ui-accent: #ff9ec4;
+  --ui-accent-alt: #e4557f;
+  --ui-ink: #241d2b;
+  --ui-panel: rgba(20, 16, 28, 0.82);
+  --ui-panel-solid: #17121f;
+  --ui-text: #fdf7ff;
+  --ui-muted: rgba(253, 247, 255, 0.62);
+  --ui-radius: 16px;
+  --ui-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --ui-font: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', system-ui, sans-serif;
+  --ui-display: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0810;
+  font-family: var(--ui-font);
+  color: var(--ui-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+#stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+#ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Screens ------------------------------------------------------------------ */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.32s ease, visibility 0.32s;
+  pointer-events: none;
+}
+
+.screen.active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.screen.dim::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 40%, rgba(10, 8, 16, 0.55), rgba(6, 4, 12, 0.92));
+  backdrop-filter: blur(7px);
+}
+
+.screen > * {
+  position: relative;
+}
+
+/* Title -------------------------------------------------------------------- */
+
+/*
+ * Scoped under #ui. `.title` in particular is a name third-party widgets also
+ * use — lil-gui's own header carries it — and an unscoped rule here would
+ * restyle anything else on the page that happens to share the class.
+ */
+#ui .title-block {
+  text-align: center;
+  margin-bottom: 40px;
+  animation: rise 0.7s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+#ui .title {
+  margin: 0;
+  font-family: var(--ui-display);
+  font-size: clamp(48px, 9vw, 104px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 0.95;
+  background: linear-gradient(160deg, #fff 10%, var(--ui-accent) 55%, var(--ui-accent-alt) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.5));
+}
+
+#ui .title-sub {
+  margin: 10px 0 0;
+  font-size: clamp(13px, 1.6vw, 17px);
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+/* The main-menu lifetime-stats line reuses `.title-sub` but needs tighter
+ * letter-spacing and its own top margin to read as a separate line, not a
+ * subtitle — kept as a class instead of inline JS styles so it lives with the
+ * rest of the theme's typography rules. */
+#ui .menu-stats {
+  margin-top: 32px;
+  letter-spacing: 0.18em;
+}
+
+/* Buttons ------------------------------------------------------------------ */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(340px, 78vw);
+}
+
+/* Pause menu fills its panel edge-to-edge instead of the default centred
+ * column width used by the main menu and course-select's back button. */
+.menu.full-width {
+  width: 100%;
+}
+
+.menu.back-menu {
+  margin-top: 32px;
+}
+
+.btn {
+  pointer-events: auto;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--ui-radius);
+  background: var(--ui-panel);
+  color: var(--ui-text);
+  font-family: var(--ui-font);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 15px 22px;
+  cursor: pointer;
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.25, 1), background 0.2s, border-color 0.2s;
+  backdrop-filter: blur(10px);
+  box-shadow: var(--ui-shadow);
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.015);
+  background: linear-gradient(120deg, var(--ui-accent), var(--ui-accent-alt));
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #1a1020;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: linear-gradient(120deg, var(--ui-accent), var(--ui-accent-alt));
+  color: #1a1020;
+  border-color: transparent;
+}
+
+.btn.ghost {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.btn.small {
+  padding: 9px 14px;
+  font-size: 13px;
+}
+
+/* Focus ---------------------------------------------------------------------
+ * `appearance: none` on `.btn` strips the native focus ring along with the
+ * rest of the native button chrome, and nothing replaced it — keyboard and
+ * switch-access users tabbing through any menu got no visible indicator at
+ * all. One on-theme ring covers every focusable surface in the UI, including
+ * course cards once they became keyboard-operable (see UI.ts).
+ */
+.btn:focus-visible,
+.course-card:focus-visible,
+.setting input:focus-visible,
+.setting select:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 3px;
+}
+
+/* Course select ------------------------------------------------------------ */
+
+.card-row {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(1080px, 92vw);
+}
+
+.course-card {
+  pointer-events: auto;
+  width: min(300px, 84vw);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: var(--ui-panel);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--ui-shadow);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.25, 1), border-color 0.22s;
+  text-align: left;
+  animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+.course-card:nth-child(2) { animation-delay: 0.07s; }
+.course-card:nth-child(3) { animation-delay: 0.14s; }
+
+.course-card:hover:not(.locked) {
+  transform: translateY(-6px);
+  border-color: var(--ui-accent);
+}
+
+.course-card.locked {
+  cursor: not-allowed;
+  filter: grayscale(0.75) brightness(0.62);
+}
+
+.course-art {
+  height: 128px;
+  position: relative;
+  overflow: hidden;
+}
+
+.course-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 40%, rgba(20, 16, 28, 0.9));
+}
+
+.course-body {
+  padding: 16px 18px 18px;
+}
+
+.course-name {
+  margin: 0;
+  font-family: var(--ui-display);
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.course-tag {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ui-muted);
+  min-height: 38px;
+}
+
+.course-stats {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 11px;
+}
+
+.course-stats b {
+  display: block;
+  font-size: 15px;
+  color: var(--ui-text);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.lock-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* HUD ---------------------------------------------------------------------- */
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  /* `visibility` (plus the matching `aria-hidden` UI.setHudVisible sets)
+   * keeps an inactive HUD out of the accessibility tree — `opacity` alone
+   * does not, so a screen reader on the main menu or a paused/settings
+   * screen was still exposed to stale hole/stroke numbers from the round
+   * underneath. Every `.screen` already uses this same pair; the HUD was the
+   * one overlay that didn't. */
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+#hud.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.hud-panel {
+  position: absolute;
+  background: var(--ui-panel);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.hud-hole {
+  top: 22px;
+  left: 22px;
+  padding: 13px 20px;
+  display: flex;
+  gap: 22px;
+  align-items: center;
+}
+
+.hud-stat {
+  text-align: center;
+}
+
+.hud-stat .label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+  margin-bottom: 3px;
+}
+
+.hud-stat .value {
+  display: block;
+  font-family: var(--ui-display);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.hud-title {
+  border-right: 1px solid rgba(255, 255, 255, 0.14);
+  padding-right: 20px;
+}
+
+.hud-title .name {
+  font-family: var(--ui-display);
+  font-size: 19px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.hud-title .course {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+.hud-total {
+  top: 22px;
+  right: 22px;
+  padding: 13px 20px;
+  display: flex;
+  gap: 20px;
+}
+
+/* Power meter -------------------------------------------------------------- */
+
+.power {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%) translateY(14px);
+  width: min(420px, 66vw);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.power.active {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.power-track {
+  height: 15px;
+  border-radius: 999px;
+  background: rgba(10, 8, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+
+.power-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6ee7ff, var(--ui-accent) 46%, #ffe066 78%, #ff5a5a);
+  transition: width 0.04s linear;
+}
+
+/* Ticks mark the thirds so players can learn repeatable power levels. */
+.power-ticks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.power-ticks span {
+  flex: 1;
+  border-right: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.power-ticks span:last-child {
+  border-right: none;
+}
+
+.power-label {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+/* Hole intro card ---------------------------------------------------------- */
+
+.hole-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  padding: 30px 54px;
+  border-radius: 22px;
+  background: var(--ui-panel);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--ui-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+.hole-card.active {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.hole-card .eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--ui-accent);
+}
+
+.hole-card .name {
+  font-family: var(--ui-display);
+  font-size: clamp(30px, 5vw, 50px);
+  font-weight: 800;
+  margin: 8px 0 6px;
+}
+
+.hole-card .par {
+  font-size: 15px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+.hole-card .hint {
+  margin-top: 16px;
+  max-width: 460px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(253, 247, 255, 0.85);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 14px;
+}
+
+.hole-card .skip {
+  margin-top: 16px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+/* Toast -------------------------------------------------------------------- */
+
+.toast {
+  position: absolute;
+  left: 50%;
+  top: 20%;
+  transform: translate(-50%, -12px);
+  font-family: var(--ui-display);
+  font-size: clamp(34px, 6vw, 62px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.45s cubic-bezier(0.2, 0.8, 0.25, 1);
+  text-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(160deg, #fff, var(--ui-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  white-space: nowrap;
+}
+
+.toast.active {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.toast .sub {
+  display: block;
+  font-family: var(--ui-font);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+  -webkit-text-fill-color: currentColor;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* Scorecard ---------------------------------------------------------------- */
+
+.panel {
+  width: min(520px, 90vw);
+  padding: 30px 34px;
+  border-radius: 22px;
+  background: var(--ui-panel);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--ui-shadow);
+  animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+.panel h2 {
+  margin: 0 0 4px;
+  font-family: var(--ui-display);
+  font-size: 30px;
+  font-weight: 800;
+}
+
+.panel .sub {
+  margin: 0 0 20px;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+.score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 22px;
+}
+
+.score-table th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+  padding-bottom: 8px;
+  font-weight: 600;
+}
+
+.score-table td {
+  padding: 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.score-table td:not(:first-child),
+.score-table th:not(:first-child) {
+  text-align: right;
+}
+
+.score-table tr.current td {
+  color: var(--ui-accent);
+  font-weight: 700;
+}
+
+.score-table tfoot td {
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  font-weight: 800;
+  font-size: 16px;
+  padding-top: 11px;
+}
+
+.under { color: #7ce7a8; }
+.over { color: #ff9a9a; }
+
+.panel .actions {
+  display: flex;
+  gap: 10px;
+}
+
+.panel .actions .btn {
+  flex: 1;
+}
+
+/* Settings' Done row sits below a list of rows and needs breathing room the
+ * scorecard/course-complete action rows (which already follow a table) don't. */
+.actions.settings-actions {
+  margin-top: 20px;
+}
+
+/* Settings ----------------------------------------------------------------- */
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 14px;
+}
+
+.setting:last-of-type {
+  border-bottom: none;
+}
+
+.setting label {
+  color: rgba(253, 247, 255, 0.9);
+}
+
+.setting input[type='range'] {
+  pointer-events: auto;
+  width: 180px;
+  accent-color: var(--ui-accent);
+}
+
+.setting select {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ui-text);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  padding: 7px 11px;
+  font-family: var(--ui-font);
+  font-size: 13px;
+}
+
+.setting input[type='checkbox'] {
+  pointer-events: auto;
+  width: 19px;
+  height: 19px;
+  accent-color: var(--ui-accent);
+}
+
+/* Text and colour inputs share the `.setting` row with Settings' sliders —
+ * the multiplayer lobby's Player Name, Room Code and Ball Colour fields use
+ * exactly this markup — but only range/select/checkbox had rules, so these
+ * three rendered as unthemed native browser controls (white box, system
+ * font) inside an otherwise fully dark, glassmorphic panel. */
+.setting input[type='text'] {
+  pointer-events: auto;
+  width: 180px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ui-text);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  padding: 7px 11px;
+  font-family: var(--ui-font);
+  font-size: 13px;
+}
+
+.setting input[type='text']::placeholder {
+  color: var(--ui-muted);
+}
+
+.setting input[type='color'] {
+  pointer-events: auto;
+  width: 52px;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+/* Multiplayer lobby ---------------------------------------------------------
+ * The room roster used a hand-rolled inline `style="..."` string per row;
+ * moved here so it shares the same source of truth as every other panel and
+ * the per-player colour is the only thing left as a dynamic value. */
+.multiplayer-status {
+  margin-top: 14px;
+}
+
+.multiplayer-roster {
+  margin-top: 12px;
+}
+
+.multiplayer-actions {
+  margin-top: 14px;
+}
+
+.roster-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.roster-row:last-child {
+  border-bottom: none;
+}
+
+.roster-dot {
+  color: var(--dot-color);
+  font-weight: 700;
+}
+
+/* Controls hint ------------------------------------------------------------ */
+
+.controls-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 22px;
+  /* Bounded on the right so long lines wrap inside the viewport instead of
+   * overflowing it — this block has no intrinsic width of its own. */
+  right: 22px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ui-muted);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.controls-hint kbd {
+  display: inline-block;
+  min-width: 19px;
+  text-align: center;
+  padding: 1px 5px;
+  margin-right: 3px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-family: var(--ui-font);
+  font-size: 10.5px;
+  color: var(--ui-text);
+}
+
+/* Debug -------------------------------------------------------------------- */
+
+.debug {
+  position: absolute;
+  bottom: 20px;
+  right: 22px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ui-muted);
+  text-align: right;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  display: none;
+}
+
+.debug.active {
+  display: block;
+}
+
+/* Loading ------------------------------------------------------------------ */
+
+#loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0a0810;
+  z-index: 50;
+  transition: opacity 0.5s ease, visibility 0.5s;
+}
+
+#loading.done {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.spinner {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.14);
+  border-top-color: var(--ui-accent);
+  animation: spin 0.85s linear infinite;
+  margin-bottom: 18px;
+}
+
+.loading-text {
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+/* Animations --------------------------------------------------------------- */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .hud-hole,
+  .hud-total {
+    padding: 9px 13px;
+    gap: 12px;
+  }
+  .hud-stat .value { font-size: 20px; }
+  /* Previously `display: none` below 720px, which also hits a merely-narrow
+   * desktop window — a player with a full mouse and keyboard would lose every
+   * control hint. Shrinking instead of hiding keeps the information for
+   * anyone who can actually use those bindings. */
+  .controls-hint {
+    font-size: 9.5px;
+    line-height: 1.5;
+  }
+}
+
+.controls-hint.hidden {
+  display: none;
+}
