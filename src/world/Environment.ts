@@ -66,8 +66,13 @@ export class Environment {
     // patch of the same lawn.
     // The shift goes into the *texture*, not the material tint: `uColor` and the
     // map multiply, so tinting a map that already carries the colour squares it.
-    const rough = new THREE.Color(theme.green).offsetHSL(-0.02, -0.12, -0.08).getHex();
-    const roughAlt = new THREE.Color(theme.greenAlt).offsetHSL(-0.02, -0.12, -0.08).getHex();
+    // Only a shade deeper than the fairway, not a different world. The earlier
+    // -0.08 lightness compounded with the facing shade baked into the slab and
+    // the contact-shading pass, and the rough came out near-black — the course
+    // read as a lit stage floating in a void rather than as a mown green inside
+    // ordinary country.
+    const rough = new THREE.Color(theme.green).offsetHSL(-0.015, -0.07, -0.035).getHex();
+    const roughAlt = new THREE.Color(theme.greenAlt).offsetHSL(-0.015, -0.07, -0.035).getHex();
     const material = new CelMaterial({
       color: 0xffffff,
       map: grassTexture(rough, roughAlt, false),

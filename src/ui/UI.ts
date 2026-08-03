@@ -33,6 +33,8 @@ export interface UIEvents {
   back: void;
   settingsChanged: Partial<SettingsData>;
   skipIntro: void;
+  /** Open the level editor (own page at /editor/). */
+  openEditor: void;
   /** Pointer entered an interactive element — drives the UI hover sound. */
   hover: void;
 }
@@ -175,6 +177,11 @@ export class UI {
       this.button('Settings', 'ghost', () => {
         this.previousScreen = 'mainMenu';
         this.events.emit('openSettings', undefined);
+      }),
+    );
+    menu.appendChild(
+      this.button('Level Editor', 'ghost', () => {
+        this.events.emit('openEditor', undefined);
       }),
     );
     screen.appendChild(menu);

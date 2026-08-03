@@ -64,6 +64,12 @@ export interface CelOptions {
   depthWrite?: boolean;
   side?: THREE.Side;
   vertexColors?: boolean;
+  /**
+   * Set on materials used by an `InstancedMesh` that carries per-instance
+   * colours. Explicit because three's own flag does not survive to a
+   * ShaderMaterial — see the note in the vertex shader.
+   */
+  instanceColors?: boolean;
   /** 0 opts a surface out of fog (used by the sky dome and UI-space props). */
   fog?: number;
   /** Extra darkening applied to the shadow band — deepens contact shadows. */
@@ -94,7 +100,20 @@ const celVertex = /* glsl */ `
   #ifdef CEL_VCOLOR
     varying vec3 vVertColor;
   #endif
-  #ifdef USE_INSTANCING_COLOR
+
+  // CEL_INSTCOLOR rather than three's USE_INSTANCING_COLOR, for the same reason
+  // as CEL_VCOLOR above: the two stages must agree on whether the varying
+  // exists, and three's flag did not reach both, so the multiply below was
+  // silently skipped and every instanced mesh — grass, flowers, rocks, the aim
+  // dots — rendered at its material's flat colour. All the per-instance
+  // variation in the game was dead, and invisible from JS: reading the instance
+  // colours back showed exactly the values intended.
+  //
+  // The *attribute* is not declared here. Three's vertex prefix already declares
+  // instanceColor for an InstancedMesh that has one, and declaring it again is
+  // a redefinition that fails to compile — which silently drops the mesh from
+  // the frame entirely. Only the varying belongs to us.
+  #ifdef CEL_INSTCOLOR
     varying vec3 vInstColor;
   #endif
 
@@ -104,7 +123,7 @@ const celVertex = /* glsl */ `
     #ifdef CEL_VCOLOR
       vVertColor = color;
     #endif
-    #ifdef USE_INSTANCING_COLOR
+    #ifdef CEL_INSTCOLOR
       vInstColor = instanceColor;
     #endif
 
@@ -187,7 +206,7 @@ const celFragment = /* glsl */ `
   #ifdef CEL_VCOLOR
     varying vec3 vVertColor;
   #endif
-  #ifdef USE_INSTANCING_COLOR
+  #ifdef CEL_INSTCOLOR
     varying vec3 vInstColor;
   #endif
 
@@ -224,7 +243,7 @@ const celFragment = /* glsl */ `
     #ifdef CEL_VCOLOR
       base *= vVertColor;
     #endif
-    #ifdef USE_INSTANCING_COLOR
+    #ifdef CEL_INSTCOLOR
       base *= vInstColor;
     #endif
     #ifdef CEL_MAP
@@ -284,6 +303,7 @@ export class CelMaterial extends THREE.ShaderMaterial {
       depthWrite = true,
       side = THREE.FrontSide,
       vertexColors = false,
+      instanceColors = false,
       fog = 1,
       shadowTint = 0.25,
       nearFade = 0,
@@ -299,6 +319,7 @@ export class CelMaterial extends THREE.ShaderMaterial {
       defines: {
         ...(map ? { CEL_MAP: '' } : {}),
         ...(vertexColors ? { CEL_VCOLOR: '' } : {}),
+        ...(instanceColors ? { CEL_INSTCOLOR: '' } : {}),
         ...(nearFade > 0 ? { CEL_NEAR_FADE: '' } : {}),
       },
       uniforms: {

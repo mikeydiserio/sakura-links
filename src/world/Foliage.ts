@@ -181,6 +181,7 @@ export function buildGrassField(options: ScatterOptions, theme: Theme): THREE.In
     sway: 1.1,
     side: THREE.DoubleSide,
     shadowTint: 0.2,
+    instanceColors: true,
     // The aim camera sits ~4u from the tee, and decorative patches are often
     // authored right where it stands. The dissolve is linear in distance, so at
     // 3.4u of a 3.5u fade only ~3% of pixels drop — it costs nothing at the rail
@@ -217,7 +218,11 @@ export function buildGrassField(options: ScatterOptions, theme: Theme): THREE.In
 export function buildFlowerField(
   options: ScatterOptions,
   theme: Theme,
-  palette: number[] = [0xffffff, 0xffd166, 0xff8fb1, 0xa78bfa],
+  // No pure white. Flower heads are small, numerous and unshaded, so at 0xffffff
+  // they sailed over the bloom pass's luminance threshold and every one of them
+  // became a glowing blob — a meadow lit like a starfield. Holding the brightest
+  // petal just under white keeps them as flowers.
+  palette: number[] = [0xf2ece2, 0xf0c96a, 0xef86a6, 0x9d83e0],
 ): THREE.InstancedMesh | null {
   const points = scatterPoints(options);
   if (points.length === 0) return null;
@@ -226,9 +231,15 @@ export function buildFlowerField(
     color: 0xffffff,
     bands: 3,
     rimColor: theme.rim,
-    rimStrength: 0.4,
-    specular: 0.2,
+    // Rim and specular are *additive* white terms, and a flower head is a few
+    // pixels across — so they were not adding a highlight to a coloured petal,
+    // they were washing the whole petal out, and the bloom pass then finished
+    // the job. The per-instance palette was already correct; it simply never
+    // survived to the screen.
+    rimStrength: 0.12,
+    specular: 0,
     sway: 0.6,
+    instanceColors: true,
     shadowTint: 0.15,
     nearFade: 2.5,
   });
@@ -273,6 +284,7 @@ export function buildRockField(options: ScatterOptions, theme: Theme): THREE.Ins
     rimColor: theme.rim,
     rimStrength: 0.3,
     shadowTint: 0.35,
+    instanceColors: true,
   });
 
   const mesh = new THREE.InstancedMesh(rockGeometry(0), material, points.length);

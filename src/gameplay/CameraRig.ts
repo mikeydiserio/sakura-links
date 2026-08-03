@@ -33,8 +33,16 @@ export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
 
   yaw = 0;
-  /** Default look-down angle. High enough to clear a hole's perimeter rails. */
-  pitch = 0.42;
+  /**
+   * Default look-down angle.
+   *
+   * Raised from 0.42 when the rails grew to 1.05 to contain full-power shots off
+   * a ramp. The eye sits `sin(pitch) * distance` above the ball, so at 0.42 it
+   * was only 2.5 up — and with the tee typically a metre from the back rail, that
+   * put a 1.05 wall across the bottom third of every frame. 0.50 lifts the eye to
+   * ~3.0 and the player looks over the rail rather than at it.
+   */
+  pitch = 0.5;
 
   private mode: CameraMode = 'aim';
   private distance = 6.2;
@@ -92,7 +100,7 @@ export class CameraRig {
 
   resetZoom(): void {
     this.targetDistance = 6.2;
-    this.pitch = 0.42;
+    this.pitch = 0.5;
   }
 
   addShake(offset: THREE.Vector3): void {

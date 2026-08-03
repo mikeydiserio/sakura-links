@@ -131,9 +131,37 @@ function buildRock(theme: Theme, options: PropOptions): THREE.Group {
   return group;
 }
 
-/** Arched wooden footbridge with railings. */
+/**
+ * Plank footbridge over the koi pond.
+ *
+ * It is deliberately near-flat rather than arched. The bridge decorates a
+ * causeway the ball actually rolls along, so an arched deck floated a metre over
+ * the surface the player is putting on — the ball ran *under* its own bridge.
+ * A slight camber keeps it from reading as a plain board.
+ *
+ * The previous version tilted each plank by `cos(t*PI) * -0.45`, a constant with
+ * no relation to the curve it was meant to follow: the real slope of
+ * `y = rise*sin(t*PI)` is `rise*PI*cos(t*PI) / span`, which here is 0.24 at its
+ * steepest — so the planks were tilted roughly twice as hard as the deck curved,
+ * and in the opposite direction. That is what made the deck look scattered.
+ * Deriving the angle from the curve keeps every plank flush with its neighbours.
+ */
 function buildBridge(theme: Theme): THREE.Group {
   const group = new THREE.Group();
+
+  // Sized to the causeway it dresses (2.6 wide, 12.4 long) divided by the 1.1
+  // scale it is placed at, so the railings land just outside the walking line
+  // instead of cutting across it.
+  const planks = 14;
+  const span = 11.3;
+  const width = 2.36;
+  const rise = 0.16;
+  const deckY = 0.08;
+
+  /** Slope of the deck curve at `t`, as an angle. */
+  const slopeAt = (t: number): number =>
+    Math.atan((rise * Math.PI * Math.cos(t * Math.PI)) / span);
+  const heightAt = (t: number): number => Math.sin(t * Math.PI) * rise;
 
   const deckMaterial = new CelMaterial({
     color: 0xffffff,
@@ -145,20 +173,14 @@ function buildBridge(theme: Theme): THREE.Group {
     shadowTint: 0.3,
   });
 
-  // Deck: planks stepped along an arc so the bridge curves over the pond.
-  const planks = 12;
-  const span = 12.4;
-  const width = 3.2;
-  const rise = 0.95;
   const deckGeometries: THREE.BufferGeometry[] = [];
   for (let i = 0; i < planks; i++) {
     const t = i / (planks - 1);
-    const x = (t - 0.5) * span;
-    const y = Math.sin(t * Math.PI) * rise;
-    const angle = Math.cos(t * Math.PI) * -0.45;
-    const plank = new THREE.BoxGeometry(span / planks + 0.06, 0.14, width);
-    plank.rotateZ(angle);
-    plank.translate(x, y, 0);
+    // Planks overlap slightly along the span so the seams read as boards laid
+    // edge to edge rather than as gaps to see the pond through.
+    const plank = new THREE.BoxGeometry(span / planks + 0.05, 0.12, width);
+    plank.rotateZ(slopeAt(t));
+    plank.translate((t - 0.5) * span, deckY + heightAt(t), 0);
     deckGeometries.push(plank);
   }
   const deck = new THREE.Mesh(mergeGeometries(deckGeometries), deckMaterial);
@@ -166,7 +188,6 @@ function buildBridge(theme: Theme): THREE.Group {
   group.add(deck);
   addOutline(deck, { color: theme.ink, pixels: 2.5 });
 
-  // Railings.
   const railMaterial = new CelMaterial({
     color: 0xd4453a,
     bands: 3,
@@ -174,15 +195,17 @@ function buildBridge(theme: Theme): THREE.Group {
     rimStrength: 0.35,
     shadowTint: 0.3,
   });
+
   const railGeometries: THREE.BufferGeometry[] = [];
-  const railOffset = width / 2 + 0.15;
+  // Posts sit outboard of the deck edge and the handrail caps them, so the two
+  // meet at a shared surface instead of crossing through one another.
+  const railOffset = width / 2 - 0.09;
+  const postHeight = 0.6;
   for (const side of [-1, 1]) {
-    for (let i = 0; i < planks; i += 2) {
+    for (let i = 0; i < planks; i += 3) {
       const t = i / (planks - 1);
-      const x = (t - 0.5) * span;
-      const y = Math.sin(t * Math.PI) * rise;
-      const post = new THREE.BoxGeometry(0.1, 0.62, 0.1);
-      post.translate(x, y + 0.34, side * railOffset);
+      const post = new THREE.BoxGeometry(0.1, postHeight, 0.1);
+      post.translate((t - 0.5) * span, deckY + heightAt(t) + postHeight / 2, side * railOffset);
       railGeometries.push(post);
     }
     for (let i = 0; i < planks - 1; i++) {
@@ -190,9 +213,9 @@ function buildBridge(theme: Theme): THREE.Group {
       const t1 = (i + 1) / (planks - 1);
       const x0 = (t0 - 0.5) * span;
       const x1 = (t1 - 0.5) * span;
-      const y0 = Math.sin(t0 * Math.PI) * rise + 0.62;
-      const y1 = Math.sin(t1 * Math.PI) * rise + 0.62;
-      const bar = new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + 0.02, 0.09, 0.09);
+      const y0 = deckY + heightAt(t0) + postHeight;
+      const y1 = deckY + heightAt(t1) + postHeight;
+      const bar = new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + 0.02, 0.09, 0.13);
       bar.rotateZ(Math.atan2(y1 - y0, x1 - x0));
       bar.translate((x0 + x1) / 2, (y0 + y1) / 2, side * railOffset);
       railGeometries.push(bar);
@@ -203,26 +226,23 @@ function buildBridge(theme: Theme): THREE.Group {
   group.add(rails);
   addOutline(rails, { color: theme.ink, pixels: 2 });
 
-  // Arch beams.
-  const archGeometries: THREE.BufferGeometry[] = [];
-  const archOffset = railOffset + 0.07;
-  const archThickness = 0.16;
+  // Stringers run *under* the deck, which is where a bridge's structure belongs
+  // and — unlike the beams this replaces — is the one place they cannot cross
+  // the railings.
+  const stringerGeometries: THREE.BufferGeometry[] = [];
   for (const side of [-1, 1]) {
     for (let i = 0; i < planks; i++) {
       const t = i / (planks - 1);
-      const x = (t - 0.5) * span;
-      const y = Math.sin(t * Math.PI) * rise + 0.36;
-      const angle = Math.cos(t * Math.PI) * -0.45;
-      const beam = new THREE.BoxGeometry(span / planks + 0.02, archThickness, 0.12);
-      beam.rotateZ(angle);
-      beam.translate(x, y, side * archOffset);
-      archGeometries.push(beam);
+      const beam = new THREE.BoxGeometry(span / planks + 0.02, 0.14, 0.14);
+      beam.rotateZ(slopeAt(t));
+      beam.translate((t - 0.5) * span, deckY + heightAt(t) - 0.12, side * (width / 2 - 0.24));
+      stringerGeometries.push(beam);
     }
   }
-  const arches = new THREE.Mesh(mergeGeometries(archGeometries), railMaterial);
-  archGeometries.forEach((g) => g.dispose());
-  group.add(arches);
-  addOutline(arches, { color: theme.ink, pixels: 2 });
+  const stringers = new THREE.Mesh(mergeGeometries(stringerGeometries), deckMaterial);
+  stringerGeometries.forEach((g) => g.dispose());
+  group.add(stringers);
+  addOutline(stringers, { color: theme.ink, pixels: 2 });
 
   return group;
 }

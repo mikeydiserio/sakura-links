@@ -282,6 +282,11 @@ export class Game {
     });
 
     ui.on('settingsChanged', (patch) => this.applySettings(this.save.updateSettings(patch)));
+
+    ui.on('openEditor', () => {
+      this.sfx.ui('click');
+      window.open('/editor/', '_blank');
+    });
   }
 
   private wireGameplay(): void {
@@ -389,7 +394,7 @@ export class Game {
     }
   }
 
-  private startCourse(courseId: string): void {
+  private startCourse(courseId: string, startHole = 0): void {
     const course = courseById(courseId);
     if (!course) return;
 
@@ -406,8 +411,16 @@ export class Game {
     }
 
     this.applyTheme(course.theme);
-    this.loadHole(0);
+    this.loadHole(clamp(startHole, 0, course.holes.length - 1));
     this.setState('playing');
+  }
+
+  /**
+   * Test-drive entry: the level editor opens the game with a custom course in
+   * the runtime course registry and jumps straight into the authored hole.
+   */
+  startTestDrive(courseId: string, holeIndex: number): void {
+    this.startCourse(courseId, holeIndex);
   }
 
   private applyTheme(themeId: ThemeId): void {

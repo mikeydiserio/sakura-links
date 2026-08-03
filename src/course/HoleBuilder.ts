@@ -118,14 +118,41 @@ interface Bucket {
  */
 const DWELL_TRAVEL = 0.24;
 
-function dwellProfile(phase: number): number {
+/**
+ * `lowShare` splits the non-travelling time between the two ends. At 0.5 the
+ * platform waits equally; above that it favours the low end.
+ *
+ * Lifts want the bias. The player always arrives from below, and the deck they
+ * launch from ends where the shaft begins — so whenever the platform is up,
+ * a shot toward the pin rolls off the edge into the void. Waiting low is not a
+ * cosmetic preference, it is the difference between a hazard the player can time
+ * and a coin flip on whether the route exists at all. Ferries, which are crossed
+ * in both directions, keep the even split.
+ */
+function dwellProfile(phase: number, lowShare = 0.5): number {
   const t = ((phase % 1) + 1) % 1;
-  const rest = 0.5 - DWELL_TRAVEL;
-  if (t < rest) return 0;
-  if (t < 0.5) return THREE.MathUtils.smoothstep((t - rest) / DWELL_TRAVEL, 0, 1);
-  if (t < 0.5 + rest) return 1;
-  return 1 - THREE.MathUtils.smoothstep((t - 0.5 - rest) / DWELL_TRAVEL, 0, 1);
+  const totalRest = 1 - 2 * DWELL_TRAVEL;
+  const lowRest = totalRest * lowShare;
+  const highRest = totalRest - lowRest;
+
+  if (t < lowRest) return 0;
+  if (t < lowRest + DWELL_TRAVEL) {
+    return THREE.MathUtils.smoothstep((t - lowRest) / DWELL_TRAVEL, 0, 1);
+  }
+  if (t < lowRest + DWELL_TRAVEL + highRest) return 1;
+  return 1 - THREE.MathUtils.smoothstep(
+    (t - lowRest - DWELL_TRAVEL - highRest) / DWELL_TRAVEL,
+    0,
+    1,
+  );
 }
+
+/**
+ * Share of a lift's waiting time spent at the bottom. 0.62 leaves roughly 2.9 s
+ * down and 1.8 s up on an 8 s cycle — long enough at the top to line up and play
+ * a stroke off the platform, but clearly weighted toward being available.
+ */
+const LIFT_LOW_SHARE = 0.62;
 
 /**
  * Texture repeats per world unit on horizontal play surfaces. Floor tiles reach
@@ -930,13 +957,49 @@ export class HoleBuilder {
     );
     this.bodies.push(body);
 
+    // Kerbs down the long sides, travelling with the platform.
+    //
+    // A lift is entered from one end and left from the other, so its ends must
+    // stay open — but its *sides* were open too, and a ball nudged even slightly
+    // off-centre rolled straight off into the void mid-ride. Static guide rails
+    // in the shaft cannot help: they are fixed at the bottom and the platform
+    // climbs away from them. These ride along, so the ball is held for the whole
+    // journey. They are half a rail tall, which is enough to contain a ball that
+    // is merely drifting without walling in a shot played off the platform.
+    const kerbHeight = DEFAULT_WALL_HEIGHT * 0.5;
+    const kerbs: Array<{ mesh: THREE.Mesh; body: CANNON.Body; dx: number }> = [];
+    for (const side of [-1, 1]) {
+      const dx = side * (w / 2 + WALL_THICKNESS / 2);
+      const kerbMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(WALL_THICKNESS, kerbHeight, d),
+        this.surfaceMaterial('wall', this.theme.wall),
+      );
+      this.group.add(kerbMesh);
+      addOutline(kerbMesh, { color: this.theme.ink, pixels: 2.6 });
+      const kerbBody = this.physics.addKinematicBox(
+        new THREE.Vector3(x + dx, low + kerbHeight / 2, z),
+        new THREE.Vector3(WALL_THICKNESS / 2, kerbHeight / 2, d / 2),
+        new THREE.Quaternion(),
+        { surface: 'wall', label: 'elevator-kerb' },
+      );
+      this.bodies.push(kerbBody);
+      kerbs.push({ mesh: kerbMesh, body: kerbBody, dx });
+    }
+
     this.updaters.push((dt, elapsed) => {
-      const targetTop = low + (high - low) * dwellProfile(elapsed / period + phase / TAU);
+      const targetTop =
+        low + (high - low) * dwellProfile(elapsed / period + phase / TAU, LIFT_LOW_SHARE);
       const targetY = targetTop - thickness / 2;
       // Drive by velocity rather than teleporting, so contact friction carries
       // the ball with the platform instead of letting it slide.
       body.velocity.set(0, dt > 0 ? (targetY - body.position.y) / dt : 0, 0);
       mesh.position.set(x, body.position.y, z);
+
+      const kerbY = targetTop + kerbHeight / 2;
+      for (const kerb of kerbs) {
+        kerb.body.velocity.set(0, dt > 0 ? (kerbY - kerb.body.position.y) / dt : 0, 0);
+        kerb.mesh.position.set(x + kerb.dx, kerb.body.position.y, z);
+      }
     });
   }
 

@@ -247,6 +247,8 @@ export type Piece =
   | TreePiece
   | ScatterPiece;
 
+export type PieceKind = Piece['kind'];
+
 export interface HoleDef {
   id: string;
   name: string;

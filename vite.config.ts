@@ -6,6 +6,10 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: false,
     rollupOptions: {
+      input: {
+        main: 'index.html',
+        editor: 'editor/index.html',
+      },
       output: {
         manualChunks: {
           three: ['three'],

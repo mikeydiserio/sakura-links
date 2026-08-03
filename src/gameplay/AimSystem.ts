@@ -117,6 +117,8 @@ export class AimSystem {
       depthWrite: false,
       rimStrength: 0,
       fog: 0,
+      // The aim dots are tinted per instance to fade the line out with distance.
+      instanceColors: true,
     });
 
     const dotGeometry = new THREE.SphereGeometry(0.075, 8, 6);
