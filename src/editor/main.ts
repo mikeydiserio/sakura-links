@@ -176,11 +176,13 @@ const style = document.createElement('style');
 style.textContent = CSS;
 document.head.appendChild(style);
 
-const viewportMount = document.getElementById('viewport');
-const panelMount = document.getElementById('panel');
-if (!viewportMount || !panelMount) {
+const viewportElement = document.getElementById('viewport');
+const panelElement = document.getElementById('panel');
+if (!viewportElement || !panelElement) {
   throw new Error('Expected #viewport and #panel to exist in editor/index.html');
 }
+const viewportMount = viewportElement;
+const panelMount = panelElement;
 
 function startEditor(choice: PickerChoice): void {
   const store = new EditorStore(choice.course, choice.source);

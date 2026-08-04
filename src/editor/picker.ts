@@ -29,7 +29,7 @@ interface CardOptions {
   meta: string;
   badge?: string;
   badgeClass?: string;
-  onPick: () => void;
+  pick: () => void;
 }
 
 function card(options: CardOptions): HTMLElement {
