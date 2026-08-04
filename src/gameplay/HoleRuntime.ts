@@ -156,12 +156,13 @@ export class HoleRuntime {
   }
 
   setMultiplayerPlayers(players: RoomPlayer[]): void {
+    const previousPlayers = this.multiplayerPlayers;
     this.multiplayerEnabled = players.length > 0;
     this.multiplayerPlayers = new Map();
     this.multiplayerOrder = [];
 
     players.forEach((player) => {
-      const existing = this.multiplayerPlayers.get(player.id);
+      const existing = previousPlayers.get(player.id);
       const ball = existing?.ball ?? new Ball(this.physics, this.theme, player.color);
       if (!existing) {
         this.group.add(ball.group, ball.shadowMesh);
@@ -187,7 +188,6 @@ export class HoleRuntime {
     if (this.activePlayerId) {
       this.ball = this.multiplayerPlayers.get(this.activePlayerId)?.ball ?? this.ball;
     }
-    this.events.emit('multiplayerTurnChanged', { playerId: this.activePlayerId });
   }
 
   setActiveMultiplayerPlayer(playerId: string | null): void {
@@ -463,7 +463,12 @@ export class HoleRuntime {
       this.strokes = activeState.strokes;
     }
 
-    this.events.emit('shot', { power, strokes: this.strokes });
+    this.events.emit('shot', {
+      power,
+      strokes: this.strokes,
+      yaw: this.aim.yaw,
+      playerId: this.activePlayerId,
+    });
   }
 
   // --- Automated playtesting hooks -----------------------------------------
@@ -479,6 +484,12 @@ export class HoleRuntime {
     this.aim.beginCharge();
     this.aim.charge = clamp01(power);
     this.fire();
+  }
+
+  /** Replays a stroke received from the player who owns the active turn. */
+  networkStrike(yaw: number, power: number): void {
+    if (this.state === 'intro') this.beginPlay();
+    this.devStrike(yaw, power);
   }
 
   /**

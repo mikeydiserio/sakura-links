@@ -47,7 +47,7 @@ export class Emitter<Events extends object> {
 /** Everything the game broadcasts. Payloads stay plain data — no THREE types. */
 export interface GameEvents {
   /** A stroke was played. */
-  shot: { power: number; strokes: number };
+  shot: { power: number; strokes: number; yaw: number; playerId: string | null };
   /** Ball struck a wall/obstacle. `speed` drives impact volume and particle count. */
   impact: { x: number; y: number; z: number; speed: number; kind: ImpactKind };
   /** Ball dropped in the cup. */

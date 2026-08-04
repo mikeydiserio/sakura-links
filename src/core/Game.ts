@@ -84,6 +84,7 @@ export class Game {
   private frameHandle = 0;
   private multiplayerLocalPlayerId = 'local-player';
   private multiplayerRoom: RoomState | null = null;
+  private applyingRemoteShot = false;
   /** Course the current multiplayer match was started on. */
   multiplayerCourseId: string | null = null;
 
@@ -109,10 +110,37 @@ export class Game {
       this.multiplayerRoom = room;
       this.ui.setMultiplayerLobby(room, this.multiplayerLocalPlayerId);
       if (room?.status === 'playing') {
+        const courseId = room.courseId ?? this.course.id;
+        if (this.multiplayerCourseId !== courseId) {
+          this.multiplayerCourseId = courseId;
+          this.startCourse(courseId);
+        }
         this.runtime.setMultiplayerPlayers(room.players);
         if (room.currentTurnPlayerId) {
           this.runtime.setActiveMultiplayerPlayer(room.currentTurnPlayerId);
         }
+      }
+    });
+
+    this.roomSync.onMatchEvent((event) => {
+      if (event.kind !== 'shot' || this.multiplayerRoom?.status !== 'playing') return;
+      const { playerId, yaw, power } = event.payload;
+      if (
+        typeof playerId !== 'string' ||
+        typeof yaw !== 'number' ||
+        typeof power !== 'number' ||
+        !Number.isFinite(yaw) ||
+        !Number.isFinite(power) ||
+        power < 0 ||
+        power > 1 ||
+        playerId !== this.runtime.activePlayerIdValue
+      ) return;
+
+      this.applyingRemoteShot = true;
+      try {
+        this.runtime.networkStrike(yaw, power);
+      } finally {
+        this.applyingRemoteShot = false;
       }
     });
 
@@ -195,20 +223,26 @@ export class Game {
       this.setState('multiplayerLobby');
     });
 
-    ui.on('createRoom', ({ name, color }) => {
+    ui.on('createRoom', async ({ name, color }) => {
       const profile = this.buildLocalProfile(name, color);
-      const room = this.roomSync.createRoom(profile);
+      this.ui.showToast('Creating room', 'Connecting…', 10_000);
+      const room = await this.roomSync.createRoom(profile);
+      if (!room) {
+        this.ui.showToast('Could not create room', 'Check your connection and try again', 2500);
+        return;
+      }
       this.multiplayerRoom = room;
       this.multiplayerLocalPlayerId = profile.id;
       this.ui.setMultiplayerLobby(room, this.multiplayerLocalPlayerId);
-      this.ui.showToast('Room Created', room.code, 1800);
+      this.ui.showToast('Room created', 'Click the code to copy it', 2200);
     });
 
-    ui.on('joinRoom', ({ roomCode, name, color }) => {
+    ui.on('joinRoom', async ({ roomCode, name, color }) => {
       const profile = this.buildLocalProfile(name, color);
-      const room = this.roomSync.joinRoom(roomCode, profile);
+      this.ui.showToast('Joining room', roomCode || 'Enter a room code', 10_000);
+      const room = await this.roomSync.joinRoom(roomCode, profile);
       if (!room) {
-        this.ui.showToast('Room unavailable', 'Try another code', 1800);
+        this.ui.showToast('Unable to join', 'Check the code and ask the host to keep the lobby open', 2600);
         return;
       }
       this.multiplayerRoom = room;
@@ -221,11 +255,9 @@ export class Game {
       if (!this.multiplayerRoom) return;
       this.multiplayerRoom.status = 'playing';
       this.multiplayerRoom.currentTurnPlayerId = this.multiplayerRoom.players[0]?.id ?? null;
+      this.multiplayerRoom.courseId = this.course.id;
+      this.multiplayerRoom.startedAt = Date.now();
       this.roomSync.setRoom(this.multiplayerRoom);
-      this.multiplayerCourseId = this.course.id;
-      this.startCourse(this.course.id);
-      this.runtime.setMultiplayerPlayers(this.multiplayerRoom.players);
-      this.runtime.setActiveMultiplayerPlayer(this.multiplayerRoom.currentTurnPlayerId);
       this.ui.showToast('Match started', this.multiplayerRoom.code, 1800);
     });
 
@@ -292,9 +324,15 @@ export class Game {
   private wireGameplay(): void {
     const events = this.runtime.events;
 
-    events.on('shot', ({ power }) => {
+    events.on('shot', ({ power, yaw, playerId }) => {
       this.sfx.swing(power);
       this.sfx.strike(power);
+      if (this.multiplayerRoom?.status === 'playing' && playerId && !this.applyingRemoteShot) {
+        this.roomSync.broadcastMatchEvent(this.multiplayerRoom.code, {
+          kind: 'shot',
+          payload: { playerId, yaw, power },
+        });
+      }
     });
 
     events.on('impact', ({ speed, kind }) => this.sfx.impact(kind, speed));
@@ -529,7 +567,10 @@ export class Game {
     const playing = this.state === 'playing';
 
     if (playing || this.state === 'scorecard' || this.state === 'complete') {
-      this.runtime.update(dt, elapsed, this.input, playing);
+      const ownsTurn =
+        this.multiplayerRoom?.status !== 'playing' ||
+        this.runtime.activePlayerIdValue === this.multiplayerLocalPlayerId;
+      this.runtime.update(dt, elapsed, this.input, playing && ownsTurn);
       if (this.runtime.updateSinking(dt) && this.state === 'playing') this.onHoleFinished();
     } else {
       // Menus still animate the world so the background stays alive, but no

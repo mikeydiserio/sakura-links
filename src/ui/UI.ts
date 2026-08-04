@@ -378,20 +378,34 @@ export class UI {
       return;
     }
 
-    const players = room.players
-      .map((player) => {
-        const marker = player.id === localPlayerId ? ' (you)' : '';
-        const host = player.isHost ? ' · host' : '';
-        // `--dot-color` is the one legitimately dynamic value (per-player);
-        // everything else about the row lives in `.roster-row` in ui.css so
-        // this list shares the panel's design language instead of hand-rolling
-        // its own inline layout.
-        return `<div class="roster-row"><span>${player.name}${marker}${host}</span><span class="roster-dot" style="--dot-color:${player.color}">●</span></div>`;
-      })
-      .join('');
-
-    this.multiplayerStatus.innerHTML = `<strong>Room ${room.code}</strong><br>${room.players.length}/4 players · ${UI.roomStatusLabel(room.status)}`;
-    this.multiplayerRoster.innerHTML = players;
+    const heading = this.el('strong');
+    heading.append('Room ');
+    const codeButton = this.button(room.code, 'room-code-button', () => {
+      void this.copyRoomCode(room.code);
+    });
+    codeButton.title = 'Copy room code';
+    codeButton.setAttribute('aria-label', `Copy room code ${room.code}`);
+    heading.appendChild(codeButton);
+    this.multiplayerStatus.replaceChildren(
+      heading,
+      this.el('br'),
+      `${room.players.length}/4 players · ${UI.roomStatusLabel(room.status)}`,
+    );
+    this.multiplayerCodeInput.value = room.code;
+    const roster = document.createDocumentFragment();
+    for (const player of room.players) {
+      const row = this.el('div', 'roster-row');
+      const marker = player.id === localPlayerId ? ' (you)' : '';
+      const host = player.isHost ? ' · host' : '';
+      const name = this.el('span');
+      name.textContent = `${player.name}${marker}${host}`;
+      row.appendChild(name);
+      const dot = this.el('span', 'roster-dot', '●');
+      dot.style.setProperty('--dot-color', /^#[0-9a-f]{6}$/i.test(player.color) ? player.color : '#ffffff');
+      row.appendChild(dot);
+      roster.appendChild(row);
+    }
+    this.multiplayerRoster.replaceChildren(roster);
 
     const buttons: HTMLButtonElement[] = [];
     if (room.hostId === localPlayerId) {
@@ -781,6 +795,20 @@ export class UI {
       default:
         return status;
     }
+  }
+
+  private async copyRoomCode(code: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      // Clipboard access requires HTTPS in some browsers. Keep one-click copy
+      // working for local/insecure hosts by selecting the visible code field.
+      this.multiplayerCodeInput.value = code;
+      this.multiplayerCodeInput.focus();
+      this.multiplayerCodeInput.select();
+      document.execCommand('copy');
+    }
+    this.showToast('Room code copied', code, 1400);
   }
 
   private scoreTable(course: CourseDef, scores: number[], currentIndex: number): HTMLElement {

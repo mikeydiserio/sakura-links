@@ -740,6 +740,25 @@ body {
   margin-top: 14px;
 }
 
+.btn.room-code-button {
+  display: inline;
+  min-width: 0;
+  width: auto;
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: copy;
+}
+
+.btn.room-code-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 .multiplayer-roster {
   margin-top: 12px;
 }
