@@ -62,7 +62,7 @@ export const SAKURA_GARDENS: CourseDef = {
 
         // The pond, and the stone causeway across it.
         { kind: 'water', x: 0, z: -1, w: 13, d: 10, y: -0.35 },
-        { kind: 'tile', x: -1.4, z: -1, w: 2.4, d: 10, walls: '', surface: 'wood', color: 0xc0693f },
+        { kind: 'tile', x: -1.4, z: -0.4, w: 2.4, d: 11.2, walls: '', surface: 'wood', color: 0xc0693f },
 
         // Landing green, dog-legged right toward the pin.
         { kind: 'tile', x: 0, z: -8.5, w: 9, d: 6, walls: 'NEW' },
@@ -103,7 +103,11 @@ export const SAKURA_GARDENS: CourseDef = {
 
         // The ramp. `tilt` lifts the north edge, so the tile's own rails climb
         // with it and the ball is guided rather than dropped off the side.
-        { kind: 'tile', x: 0, z: 1.5, w: 6.5, d: 6.2, y: 0.82, tilt: 0.265, walls: 'EW' },
+        // 0.265 exceeded the 0.24 cap. Dropping to 0.22 does double duty: it is under
+        // the cap, and the shallower angle makes the ramp *longer* (d = 1.6/sin0.22
+        // = 7.33), which is what lets it span the 6.2 between the terraces with a
+        // real overlap at both ends instead of meeting them at a knife edge.
+        { kind: 'tile', x: 0, z: 1.47, w: 6.5, d: 7.33, y: 0.8, tilt: 0.22, walls: 'EW' },
 
         // Upper terrace, split so the sand bed is flush rather than stacked.
         { kind: 'tile', x: 0, z: -3.4, w: 6.5, d: 3.4, y: 1.6, walls: 'EW' },
@@ -144,7 +148,11 @@ export const SAKURA_GARDENS: CourseDef = {
       pieces: [
         { kind: 'tile', x: 0, z: 7.8, w: 7.2, d: 8.2, walls: 'SEW' },
         { kind: 'water', x: 0, z: -0.2, w: 10.6, d: 8.2, y: -0.35 },
-        { kind: 'tile', x: -1.2, z: -0.2, w: 2.8, d: 8.2, surface: 'wood', color: 0xc0693f, walls: '' },
+        // North edge pushed to z = 4.2 so the overlap with the tee shelf (whose
+        // south edge is 3.7) is 0.5 rather than 0.2. The convention is 0.4 minimum:
+        // a seam thinner than that is a lip the ball can catch on, and the checker's
+        // tolerance passing it does not make it safe to putt across.
+        { kind: 'tile', x: -1.2, z: -1.1, w: 2.8, d: 10.6, surface: 'wood', color: 0xc0693f, walls: '' },
         { kind: 'tile', x: 0, z: -8.8, w: 8.4, d: 6.2, walls: 'NEW' },
         { kind: 'bump', x: 0, z: -8.8, radius: 2.2, height: -0.16 },
         { kind: 'prop', type: 'bridge', x: 3.3, z: -0.2, rotY: Math.PI / 2, scale: 1.05 },
@@ -166,8 +174,8 @@ export const SAKURA_GARDENS: CourseDef = {
       cup: { x: 2.2, y: 0, z: -9.2 },
       pieces: [
         { kind: 'tile', x: 0, z: 7.6, w: 6.6, d: 7.2, walls: 'SEW' },
-        { kind: 'tile', x: -2.2, z: -0.1, w: 2.8, d: 9.6, walls: 'W' },
-        { kind: 'tile', x: 2.2, z: -0.1, w: 2.8, d: 9.6, walls: 'E' },
+        { kind: 'tile', x: -2.2, z: -0.85, w: 2.8, d: 11.1, walls: 'W' },
+        { kind: 'tile', x: 2.2, z: -0.85, w: 2.8, d: 11.1, walls: 'E' },
         { kind: 'tile', x: 0, z: -8.8, w: 8.2, d: 6.2, walls: 'NEW' },
         { kind: 'bump', x: 2.2, z: -9.2, radius: 2.1, height: -0.14 },
         { kind: 'prop', type: 'bamboo', x: -5.4, z: 4.4 },
@@ -190,7 +198,9 @@ export const SAKURA_GARDENS: CourseDef = {
       pieces: [
         { kind: 'tile', x: 0, z: 7.8, w: 6.8, d: 7.6, walls: 'SEW' },
         { kind: 'water', x: 0, z: -0.3, w: 12, d: 8.8, y: -0.34 },
-        { kind: 'tile', x: -1.4, z: -0.3, w: 3.2, d: 8.8, surface: 'wood', color: 0xc0693f, walls: '' },
+        // Same 0.4-minimum seam fix as sakura-4: north edge to z = 4.5 against a
+        // tee shelf ending at 4.0, for 0.5 of overlap instead of 0.1.
+        { kind: 'tile', x: -1.4, z: -0.95, w: 3.2, d: 10.9, surface: 'wood', color: 0xc0693f, walls: '' },
         { kind: 'tile', x: 0, z: -8.8, w: 8.2, d: 6.2, walls: 'NEW' },
         { kind: 'bump', x: -1.2, z: -9.2, radius: 2, height: -0.14 },
         { kind: 'prop', type: 'bridge', x: 4.2, z: -0.3, rotY: Math.PI / 2, scale: 1 },
@@ -212,7 +222,7 @@ export const SAKURA_GARDENS: CourseDef = {
       cup: { x: 0, y: 1.2, z: -9.6 },
       pieces: [
         { kind: 'tile', x: 0, z: 8.4, w: 6.8, d: 7.2, walls: 'SEW' },
-        { kind: 'tile', x: 0, z: 1.8, w: 6.2, d: 6.4, y: 0.7, tilt: 0.24, walls: 'EW' },
+        { kind: 'tile', x: 0, z: 1.3, w: 6.2, d: 7.4, y: 0.6, tilt: 0.1629, walls: 'EW' },
         { kind: 'tile', x: 0, z: -3.8, w: 6.2, d: 3.8, y: 1.2, walls: 'EW' },
         { kind: 'tile', x: 0, z: -8.8, w: 7.4, d: 3.2, y: 1.2, walls: 'NEW' },
         { kind: 'tile', x: 1.8, z: -6.6, w: 2.8, d: 2.2, y: 1.2, surface: 'sand', walls: 'E' },

@@ -71,8 +71,8 @@ export const NEON_ARCADE: CourseDef = {
         { kind: 'tile', x: 0, z: 8.6, w: 7, d: 8 , walls: 'SEW' },
 
         // Frictionless midsection guarded by a revolving gate.
-        { kind: 'tile', x: 0, z: 0.6, w: 7, d: 8, surface: 'ice', color: 0x9fe8ff, walls: 'EW' },
-        { kind: 'spinner', x: 0, z: 0.6, length: 3.4, speed: 1.55, arms: 2 },
+        { kind: 'tile', x: 0, z: 0.2, w: 7, d: 8.8, surface: 'ice', color: 0x9fe8ff, walls: 'EW' },
+        { kind: 'spinner', x: 0, z: 0.2, length: 3.4, speed: 1.55, arms: 2 },
 
         { kind: 'rotator', x: 0, z: -6.4, y: 0, radius: 2.7, speed: 1.05 },
 
@@ -85,7 +85,7 @@ export const NEON_ARCADE: CourseDef = {
         {
           kind: 'rail',
           points: [
-            [-4.1, -3.4],
+            [-4.1, -4.2],
             [-4.1, -9.4],
           ],
           glow: true,
@@ -93,7 +93,7 @@ export const NEON_ARCADE: CourseDef = {
         {
           kind: 'rail',
           points: [
-            [4.1, -3.4],
+            [4.1, -4.2],
             [4.1, -9.4],
           ],
           glow: true,
@@ -132,13 +132,17 @@ export const NEON_ARCADE: CourseDef = {
         // Ferry across the break.
         { kind: 'mover', x: 0, z: -0.6, y: 0, w: 3.2, d: 2.6, axis: 'x', distance: 3.4, period: 3.6 },
 
-        { kind: 'tile', x: 0, z: -5, w: 6.4, d: 5.2, walls: 'EW' },
+        { kind: 'tile', x: 0, z: -4.5, w: 6.4, d: 6.2, walls: 'EW' },
         { kind: 'jump', x: -2, z: -5, power: 10.5, radius: 0.62 },
         { kind: 'bumper', x: 2.2, z: -6, radius: 0.4 },
 
         // Final climb. The ramp's south lip is flush with the deck so a rolling
         // ball transitions onto it without catching.
-        { kind: 'tile', x: 0, z: -8.5, w: 4.4, d: 3, y: 0.9, tilt: 0.632, walls: 'EW' },
+        // 0.632 rad was 2.6x the 0.24 cap: a full-power ball (26 u/s) off that ramp
+        // rises (26*sin0.632)^2/40 = 5.9u and leaves the course entirely. Depth is
+        // solved from the rise instead of chosen — d = 1.8/sin(0.24) = 7.57, centred
+        // at half the rise so the foot meets y=0 and the head meets y=1.8 exactly.
+        { kind: 'tile', x: 0, z: -6.21, w: 4.4, d: 7.57, y: 0.9, tilt: 0.24, walls: 'EW' },
 
         { kind: 'tile', x: 0, z: -13, w: 8, d: 7, y: 1.8, walls: 'NEW' },
         { kind: 'bump', x: 0, z: -13.4, y: 1.8, radius: 2.3, height: -0.17 },
@@ -184,6 +188,7 @@ export const NEON_ARCADE: CourseDef = {
         { kind: 'tile', x: 0, z: 2.4, w: 4.6, d: 8.4, walls: 'EW' },
         { kind: 'bumper', x: -1.2, z: 3.6, radius: 0.4 },
         { kind: 'bumper', x: 1.2, z: 0.8, radius: 0.4 },
+        { kind: 'tile', x: 0, z: -3.35, w: 4.6, d: 3.9, walls: 'EW' },
         { kind: 'tile', x: 0, z: -8.2, w: 7.4, d: 6.6, walls: 'NEW' },
         { kind: 'bump', x: 0, z: -10.8, radius: 2.2, height: -0.16 },
         { kind: 'prop', type: 'arcadeSign', x: 0, z: 13.6, scale: 1.1 },
@@ -207,6 +212,7 @@ export const NEON_ARCADE: CourseDef = {
         { kind: 'spinner', x: 0, z: 3.8, length: 3.2, speed: 1.4, arms: 3 },
         { kind: 'bumper', x: -1.5, z: -0.4, radius: 0.4 },
         { kind: 'bumper', x: 1.5, z: -0.4, radius: 0.4 },
+        { kind: 'tile', x: 0, z: -3.05, w: 4.6, d: 6.5, walls: 'EW' },
         { kind: 'tile', x: 0, z: -8.8, w: 7.2, d: 6.2, walls: 'NEW' },
         { kind: 'bump', x: -0.8, z: -10.6, radius: 2.1, height: -0.16 },
         { kind: 'prop', type: 'pillar', x: -5, z: 4.2 },
@@ -227,6 +233,7 @@ export const NEON_ARCADE: CourseDef = {
       pieces: [
         { kind: 'tile', x: 0, z: 9.4, w: 6.4, d: 6.8, walls: 'SEW' },
         { kind: 'booster', x: 0, z: 6.4, w: 2.4, d: 2.4, power: 12.5 },
+        { kind: 'tile', x: 0, z: 3.95, w: 4.8, d: 5.1, walls: 'EW' },
         { kind: 'mover', x: 0, z: 0.6, y: 0, w: 3.2, d: 2.6, axis: 'x', distance: 3.2, period: 3.4 },
         { kind: 'tile', x: 0, z: -4.6, w: 4.8, d: 8.2, walls: 'EW' },
         { kind: 'tile', x: 0, z: -10.8, w: 7.8, d: 6.8, walls: 'NEW' },
@@ -251,6 +258,7 @@ export const NEON_ARCADE: CourseDef = {
         { kind: 'jump', x: 0, z: 6.8, power: 11.2, radius: 0.64 },
         { kind: 'tile', x: 0, z: 2.2, w: 4.4, d: 8, walls: 'EW' },
         { kind: 'rotator', x: 0, z: -3.4, y: 0, radius: 2.3, speed: 0.95 },
+        { kind: 'tile', x: 0, z: -6.9, w: 4.4, d: 3.4, y: 0.4, tilt: 0.24, walls: 'EW' },
         { kind: 'tile', x: 0, z: -9.2, w: 7.6, d: 6.8, y: 0.8, walls: 'NEW' },
         { kind: 'bump', x: 0, z: -11.8, y: 0.8, radius: 2.2, height: -0.16 },
         { kind: 'prop', type: 'pillar', x: -5.2, z: -2.6 },
@@ -274,6 +282,7 @@ export const NEON_ARCADE: CourseDef = {
         { kind: 'tile', x: 0, z: 2.4, w: 3.8, d: 8.4, walls: 'EW' },
         { kind: 'bumper', x: -0.95, z: 3.6, radius: 0.34 },
         { kind: 'bumper', x: 0.95, z: 1.2, radius: 0.34 },
+        { kind: 'tile', x: 0, z: -3.65, w: 3.8, d: 4.7, walls: 'EW' },
         { kind: 'tile', x: 0, z: -8.8, w: 7.6, d: 6.6, walls: 'NEW' },
         { kind: 'bump', x: 0, z: -10.6, radius: 2.2, height: -0.16 },
         { kind: 'prop', type: 'arcadeSign', x: 0, z: 13.8, scale: 1.1 },
