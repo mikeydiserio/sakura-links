@@ -27,7 +27,12 @@ import type { SettingsData } from './Storage';
 import { COURSES, courseById } from '../course';
 import type { CourseDef } from '../course/types';
 import { clamp, formatToPar } from '../util/math';
-import { RoomSync, type RoomPlayer, type RoomState } from '../multiplayer/RoomSync';
+import {
+  RoomSync,
+  type MatchSnapshot,
+  type RoomPlayer,
+  type RoomState,
+} from '../multiplayer/RoomSync';
 
 /**
  * Top-level orchestrator: owns the scene, the frame loop and the state machine
@@ -84,7 +89,13 @@ export class Game {
   private frameHandle = 0;
   private multiplayerLocalPlayerId = 'local-player';
   private multiplayerRoom: RoomState | null = null;
-  private applyingRemoteShot = false;
+  private localShotSequence = 0;
+  private snapshotSequence = 0;
+  private lastSnapshotSequence = -1;
+  private snapshotAccumulator = 0;
+  private remoteMatchTime = 0;
+  private remoteMatchTimeReceivedAt = 0;
+  private readonly lastShotSequenceByPlayer = new Map<string, number>();
   /** Course the current multiplayer match was started on. */
   multiplayerCourseId: string | null = null;
 
@@ -113,35 +124,56 @@ export class Game {
         const courseId = room.courseId ?? this.course.id;
         if (this.multiplayerCourseId !== courseId) {
           this.multiplayerCourseId = courseId;
+          this.resetMultiplayerSync();
           this.startCourse(courseId);
         }
         this.runtime.setMultiplayerPlayers(room.players);
         if (room.currentTurnPlayerId) {
-          this.runtime.setActiveMultiplayerPlayer(room.currentTurnPlayerId);
+          this.runtime.setActiveMultiplayerPlayer(room.currentTurnPlayerId, this.roomSync.isHostValue);
         }
       }
     });
 
     this.roomSync.onMatchEvent((event) => {
-      if (event.kind !== 'shot' || this.multiplayerRoom?.status !== 'playing') return;
-      const { playerId, yaw, power } = event.payload;
+      if (!this.multiplayerRoom) return;
+
+      if (event.kind === 'shot-command') {
+        if (!this.roomSync.isHostValue || this.multiplayerRoom.status !== 'playing') return;
+        const lastSequence = this.lastShotSequenceByPlayer.get(event.playerId) ?? -1;
+        if (
+          !Number.isSafeInteger(event.sequence) ||
+          event.sequence <= lastSequence ||
+          !Number.isFinite(event.yaw) ||
+          !Number.isFinite(event.power) ||
+          event.power < 0 ||
+          event.power > 1 ||
+          event.playerId !== this.runtime.activePlayerIdValue ||
+          !this.multiplayerRoom.players.some((player) => player.id === event.playerId)
+        ) return;
+
+        this.lastShotSequenceByPlayer.set(event.playerId, event.sequence);
+        if (this.runtime.networkStrike(event.yaw, event.power)) {
+          this.broadcastAuthoritativeSnapshot(true);
+        }
+        return;
+      }
+
       if (
-        typeof playerId !== 'string' ||
-        typeof yaw !== 'number' ||
-        typeof power !== 'number' ||
-        !Number.isFinite(yaw) ||
-        !Number.isFinite(power) ||
-        power < 0 ||
-        power > 1 ||
-        playerId !== this.runtime.activePlayerIdValue
+        this.roomSync.isHostValue ||
+        !Number.isSafeInteger(event.sequence) ||
+        event.sequence <= this.lastSnapshotSequence ||
+        !Number.isFinite(event.matchTime)
       ) return;
 
-      this.applyingRemoteShot = true;
-      try {
-        this.runtime.networkStrike(yaw, power);
-      } finally {
-        this.applyingRemoteShot = false;
-      }
+      this.lastSnapshotSequence = event.sequence;
+      this.remoteMatchTime = Math.max(0, event.matchTime);
+      this.remoteMatchTimeReceivedAt = performance.now();
+      if (event.holeIndex !== this.holeIndex) this.loadHole(event.holeIndex);
+      this.runtime.applyMultiplayerSnapshot(event);
+      this.multiplayerRoom.currentTurnPlayerId = event.activePlayerId;
+      this.multiplayerRoom.winnerPlayerId = event.winnerPlayerId;
+      if (event.winnerPlayerId) this.multiplayerRoom.status = 'finished';
+      this.ui.setMultiplayerLobby(this.multiplayerRoom, this.multiplayerLocalPlayerId);
     });
 
     this.scene.add(
@@ -253,6 +285,7 @@ export class Game {
 
     ui.on('startMultiplayer', () => {
       if (!this.multiplayerRoom) return;
+      this.resetMultiplayerSync();
       this.multiplayerRoom.status = 'playing';
       this.multiplayerRoom.currentTurnPlayerId = this.multiplayerRoom.players[0]?.id ?? null;
       this.multiplayerRoom.courseId = this.course.id;
@@ -324,13 +357,26 @@ export class Game {
   private wireGameplay(): void {
     const events = this.runtime.events;
 
-    events.on('shot', ({ power, yaw, playerId }) => {
+    events.on('shot', ({ power }) => {
       this.sfx.swing(power);
       this.sfx.strike(power);
-      if (this.multiplayerRoom?.status === 'playing' && playerId && !this.applyingRemoteShot) {
-        this.roomSync.broadcastMatchEvent(this.multiplayerRoom.code, {
-          kind: 'shot',
-          payload: { playerId, yaw, power },
+    });
+
+    events.on('shotRequested', ({ power, yaw, playerId }) => {
+      this.sfx.swing(power);
+      this.sfx.strike(power);
+      if (
+        !this.roomSync.isHostValue &&
+        this.multiplayerRoom?.status === 'playing' &&
+        playerId === this.multiplayerLocalPlayerId &&
+        playerId === this.runtime.activePlayerIdValue
+      ) {
+        this.roomSync.sendShotCommand(this.multiplayerRoom.code, {
+          kind: 'shot-command',
+          sequence: ++this.localShotSequence,
+          playerId,
+          yaw,
+          power,
         });
       }
     });
@@ -358,14 +404,14 @@ export class Game {
     });
 
     events.on('multiplayerTurnChanged', ({ playerId }) => {
-      if (!this.multiplayerRoom || this.multiplayerRoom.status !== 'playing') return;
+      if (!this.roomSync.isHostValue || !this.multiplayerRoom || this.multiplayerRoom.status !== 'playing') return;
       this.multiplayerRoom.currentTurnPlayerId = playerId;
       this.roomSync.setRoom(this.multiplayerRoom);
       this.ui.setMultiplayerLobby(this.multiplayerRoom, this.multiplayerLocalPlayerId);
     });
 
     events.on('multiplayerWon', ({ playerId }) => {
-      if (!this.multiplayerRoom) return;
+      if (!this.roomSync.isHostValue || !this.multiplayerRoom) return;
       this.multiplayerRoom.status = 'finished';
       this.multiplayerRoom.winnerPlayerId = playerId;
       this.multiplayerRoom.currentTurnPlayerId = playerId;
@@ -446,6 +492,7 @@ export class Game {
       this.runtime.setActiveMultiplayerPlayer(this.multiplayerRoom.currentTurnPlayerId);
     } else {
       this.runtime.setMultiplayerPlayers([]);
+      this.multiplayerCourseId = null;
     }
 
     this.applyTheme(course.theme);
@@ -524,6 +571,41 @@ export class Game {
     };
   }
 
+  private resetMultiplayerSync(): void {
+    this.localShotSequence = 0;
+    this.snapshotSequence = 0;
+    this.lastSnapshotSequence = -1;
+    this.snapshotAccumulator = 0;
+    this.remoteMatchTime = 0;
+    this.remoteMatchTimeReceivedAt = performance.now();
+    this.lastShotSequenceByPlayer.clear();
+  }
+
+  private currentMatchTime(): number {
+    if (this.roomSync.isHostValue) {
+      const startedAt = this.multiplayerRoom?.startedAt;
+      return startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : 0;
+    }
+    return this.remoteMatchTime + Math.max(0, (performance.now() - this.remoteMatchTimeReceivedAt) / 1000);
+  }
+
+  private broadcastAuthoritativeSnapshot(force: boolean): void {
+    if (
+      !this.roomSync.isHostValue ||
+      !this.multiplayerRoom ||
+      (this.multiplayerRoom.status !== 'playing' && this.multiplayerRoom.status !== 'finished')
+    ) return;
+    if (!force && this.snapshotAccumulator < 0.05) return;
+
+    this.snapshotAccumulator = 0;
+    const snapshot: MatchSnapshot = this.runtime.captureMultiplayerSnapshot(
+      ++this.snapshotSequence,
+      this.currentMatchTime(),
+      this.holeIndex,
+    );
+    this.roomSync.broadcastSnapshot(this.multiplayerRoom.code, snapshot);
+  }
+
   private onHoleFinished(): void {
     const hole = this.course.holes[this.holeIndex];
     this.scores[this.holeIndex] = this.runtime.strokes;
@@ -567,11 +649,20 @@ export class Game {
     const playing = this.state === 'playing';
 
     if (playing || this.state === 'scorecard' || this.state === 'complete') {
+      const networkMatch = this.multiplayerRoom !== null && this.multiplayerCourseId !== null;
+      const simulateAuthority = !networkMatch || this.roomSync.isHostValue;
       const ownsTurn =
-        this.multiplayerRoom?.status !== 'playing' ||
-        this.runtime.activePlayerIdValue === this.multiplayerLocalPlayerId;
-      this.runtime.update(dt, elapsed, this.input, playing && ownsTurn);
-      if (this.runtime.updateSinking(dt) && this.state === 'playing') this.onHoleFinished();
+        !networkMatch ||
+        (this.multiplayerRoom?.status === 'playing' &&
+          this.runtime.activePlayerIdValue === this.multiplayerLocalPlayerId);
+      const matchElapsed = networkMatch ? this.currentMatchTime() : elapsed;
+      this.runtime.update(dt, matchElapsed, this.input, playing && ownsTurn, simulateAuthority);
+      const finishedSinking = simulateAuthority && this.runtime.updateSinking(dt);
+      if (networkMatch && this.roomSync.isHostValue) {
+        this.snapshotAccumulator += rawDt;
+        this.broadcastAuthoritativeSnapshot(false);
+      }
+      if (finishedSinking && this.state === 'playing') this.onHoleFinished();
     } else {
       // Menus still animate the world so the background stays alive, but no
       // physics runs and no input reaches the course.
@@ -615,7 +706,11 @@ export class Game {
       }
     }
 
-    if (this.state === 'playing' && this.input.consume('restartHole')) {
+    if (
+      this.state === 'playing' &&
+      this.input.consume('restartHole') &&
+      this.multiplayerRoom?.status !== 'playing'
+    ) {
       this.runtime.restart();
       this.ui.showToast('Hole Restarted', '', 1100);
     }
@@ -756,6 +851,7 @@ export class Game {
     this.sfx.dispose();
     this.audio.dispose();
     this.input.dispose();
+    this.roomSync.dispose();
   }
 }
 

@@ -48,6 +48,8 @@ export class Emitter<Events extends object> {
 export interface GameEvents {
   /** A stroke was played. */
   shot: { power: number; strokes: number; yaw: number; playerId: string | null };
+  /** A guest released a stroke; the host must validate and simulate it. */
+  shotRequested: { power: number; yaw: number; playerId: string | null };
   /** Ball struck a wall/obstacle. `speed` drives impact volume and particle count. */
   impact: { x: number; y: number; z: number; speed: number; kind: ImpactKind };
   /** Ball dropped in the cup. */

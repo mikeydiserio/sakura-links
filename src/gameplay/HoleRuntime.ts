@@ -16,7 +16,7 @@ import { clamp01, damp, easeOutCubic } from '../util/math';
 import type { Theme } from '../render/Palette';
 import type { HoleDef } from '../course/types';
 import type { Input } from '../core/Input';
-import type { RoomPlayer } from '../multiplayer/RoomSync';
+import type { BallSnapshot, MatchSnapshot, RoomPlayer } from '../multiplayer/RoomSync';
 
 /**
  * Owns everything about *playing a single hole*: the turn loop, hazards, the
@@ -69,6 +69,7 @@ export class HoleRuntime {
   elapsedOnHole = 0;
 
   private ball: Ball;
+  private readonly soloBall: Ball;
   private readonly club: Club;
   private readonly aim: AimSystem;
   private readonly trail: Trail;
@@ -96,6 +97,9 @@ export class HoleRuntime {
   private activePlayerId: string | null = null;
   private multiplayerEnabled = false;
   private multiplayerWinnerId: string | null = null;
+  private remoteReplicaMode = false;
+  /** Latest host states. Guests interpolate toward these without stepping physics. */
+  private readonly remoteTargets = new Map<string, BallSnapshot>();
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -106,7 +110,8 @@ export class HoleRuntime {
   ) {
     this.group.name = 'hole-runtime';
 
-    this.ball = new Ball(physics, theme);
+    this.soloBall = new Ball(physics, theme);
+    this.ball = this.soloBall;
     this.club = new Club(theme);
     this.registerBall(this.ball);
     this.aim = new AimSystem(physics, theme);
@@ -161,6 +166,16 @@ export class HoleRuntime {
     this.multiplayerPlayers = new Map();
     this.multiplayerOrder = [];
 
+    const nextPlayerIds = new Set(players.map((player) => player.id));
+    for (const [playerId, state] of previousPlayers) {
+      if (!nextPlayerIds.has(playerId)) this.disposeMultiplayerBall(state.ball);
+    }
+
+    this.soloBall.visible = !this.multiplayerEnabled;
+    this.soloBall.body.collisionResponse = !this.multiplayerEnabled;
+    this.soloBall.body.type = this.multiplayerEnabled ? CANNON.Body.STATIC : CANNON.Body.DYNAMIC;
+    this.soloBall.body.updateMassProperties();
+
     players.forEach((player) => {
       const existing = previousPlayers.get(player.id);
       const ball = existing?.ball ?? new Ball(this.physics, this.theme, player.color);
@@ -182,6 +197,13 @@ export class HoleRuntime {
     });
 
     this.multiplayerWinnerId = null;
+    if (!this.multiplayerEnabled) {
+      this.activePlayerId = null;
+      this.ball = this.soloBall;
+      this.remoteTargets.clear();
+      this.remoteReplicaMode = false;
+      return;
+    }
     if (this.activePlayerId === null || !this.multiplayerPlayers.has(this.activePlayerId)) {
       this.activePlayerId = this.multiplayerOrder[0] ?? null;
     }
@@ -190,7 +212,7 @@ export class HoleRuntime {
     }
   }
 
-  setActiveMultiplayerPlayer(playerId: string | null): void {
+  setActiveMultiplayerPlayer(playerId: string | null, emitChange = true): void {
     const previousId = this.activePlayerId;
     if (!playerId || !this.multiplayerPlayers.has(playerId)) {
       this.activePlayerId = this.multiplayerOrder[0] ?? null;
@@ -198,14 +220,83 @@ export class HoleRuntime {
       this.activePlayerId = playerId;
     }
     this.ball = this.activePlayerId ? this.multiplayerPlayers.get(this.activePlayerId)?.ball ?? this.ball : this.ball;
-    if (previousId !== this.activePlayerId) {
+    if (emitChange && previousId !== this.activePlayerId) {
       this.events.emit('multiplayerTurnChanged', { playerId: this.activePlayerId });
     }
+  }
+
+  captureMultiplayerSnapshot(
+    sequence: number,
+    matchTime: number,
+    holeIndex: number,
+  ): MatchSnapshot {
+    const balls = this.multiplayerOrder.flatMap((playerId) => {
+      const player = this.multiplayerPlayers.get(playerId);
+      if (!player) return [];
+      const body = player.ball.body;
+      return [{
+        playerId,
+        position: [body.position.x, body.position.y, body.position.z] as [number, number, number],
+        quaternion: [body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w] as [number, number, number, number],
+        velocity: [body.velocity.x, body.velocity.y, body.velocity.z] as [number, number, number],
+        angularVelocity: [body.angularVelocity.x, body.angularVelocity.y, body.angularVelocity.z] as [number, number, number],
+        strokes: player.strokes,
+        holed: player.holed,
+        visible: player.ball.visible,
+      }];
+    });
+
+    return {
+      kind: 'state-snapshot',
+      sequence,
+      matchTime,
+      holeIndex,
+      playState: this.state,
+      activePlayerId: this.activePlayerId,
+      winnerPlayerId: this.multiplayerWinnerId,
+      aimYaw: this.aim.yaw,
+      balls,
+    };
+  }
+
+  /** Applies host-owned match metadata and queues smooth visual correction. */
+  applyMultiplayerSnapshot(snapshot: MatchSnapshot): void {
+    this.state = snapshot.playState;
+    this.multiplayerWinnerId = snapshot.winnerPlayerId;
+    this.aim.yaw = snapshot.aimYaw;
+    this.setActiveMultiplayerPlayer(snapshot.activePlayerId, false);
+
+    for (const target of snapshot.balls) {
+      const player = this.multiplayerPlayers.get(target.playerId);
+      if (!player) continue;
+      const body = player.ball.body;
+      const hadTarget = this.remoteTargets.has(target.playerId);
+      const dx = target.position[0] - body.position.x;
+      const dy = target.position[1] - body.position.y;
+      const dz = target.position[2] - body.position.z;
+      if (!hadTarget || dx * dx + dy * dy + dz * dz > 16) {
+        body.position.set(...target.position);
+      }
+      player.strokes = target.strokes;
+      player.holed = target.holed;
+      player.ball.visible = target.visible;
+      this.remoteTargets.set(target.playerId, target);
+    }
+
+    const active = this.activePlayerId ? this.multiplayerPlayers.get(this.activePlayerId) : null;
+    if (active) {
+      this.ball = active.ball;
+      this.strokes = active.strokes;
+    }
+    const canAim = this.state === 'aiming' || this.state === 'charging';
+    this.aim.visible = canAim;
+    this.club.visible = canAim;
   }
 
   /** Tears down the previous hole and constructs the next one. */
   load(hole: HoleDef, theme: Theme): void {
     this.unloadHole();
+    this.remoteTargets.clear();
 
     this.theme = theme;
     this.hole = hole;
@@ -330,22 +421,37 @@ export class HoleRuntime {
 
   // --- Frame ---------------------------------------------------------------
 
-  update(dt: number, elapsed: number, input: Input, inputEnabled: boolean): void {
+  update(
+    dt: number,
+    elapsed: number,
+    input: Input,
+    inputEnabled: boolean,
+    simulateAuthority = true,
+  ): void {
     if (!this.built || !this.hole) return;
 
     this.elapsedOnHole += dt;
 
-    if (this.state === 'intro') {
+    if (simulateAuthority && this.state === 'intro') {
       this.introTimer += dt;
       // The establishing orbit is skippable but ends on its own.
       if (this.introTimer > 3.4) this.beginPlay();
     }
 
-    if (inputEnabled) this.handleInput(dt, input);
+    if (inputEnabled) this.handleInput(dt, input, simulateAuthority);
     else if (this.aim.charging) this.abortShot();
 
-    this.stepSimulation(dt);
-    this.updateHoleLogic(dt);
+    if (simulateAuthority) {
+      this.setRemoteReplicaMode(false);
+      this.stepSimulation(dt);
+      this.updateHoleLogic(dt);
+    } else {
+      this.setRemoteReplicaMode(true);
+      this.interpolateRemoteBalls(dt);
+      // Replicated balls are static, but the world still needs to advance so
+      // kinematic lifts, ferries and rotators follow the shared host clock.
+      this.physics.step(dt);
+    }
 
     for (const update of this.built.updaters) update(dt, elapsed);
     for (const water of this.built.waters) water.update(elapsed, this.camera.camera.position);
@@ -357,7 +463,7 @@ export class HoleRuntime {
     this.updateCamera(dt);
   }
 
-  private handleInput(dt: number, input: Input): void {
+  private handleInput(dt: number, input: Input, simulateAuthority: boolean): void {
     const pointer = input.pointer;
 
     // Right-drag orbits the camera without disturbing the aim line.
@@ -414,7 +520,10 @@ export class HoleRuntime {
     }
     if (this.aim.charging) this.club.setCharge(this.aim.charge);
 
-    if (input.consume('shoot') && this.aim.charging) this.fire();
+    if (input.consume('shoot') && this.aim.charging) {
+      if (simulateAuthority) this.fire();
+      else this.requestAuthoritativeShot();
+    }
   }
 
   private abortShot(): void {
@@ -486,10 +595,29 @@ export class HoleRuntime {
     this.fire();
   }
 
+  private requestAuthoritativeShot(): void {
+    const activeState = this.activePlayerId ? this.multiplayerPlayers.get(this.activePlayerId) : null;
+    if (!this.built || !activeState) return;
+
+    const power = this.aim.charge;
+    this.aim.releaseCharge();
+    this.club.release();
+    this.state = 'rolling';
+    this.aim.visible = false;
+    this.camera.setMode('follow');
+    this.events.emit('shotRequested', {
+      power,
+      yaw: this.aim.yaw,
+      playerId: this.activePlayerId,
+    });
+  }
+
   /** Replays a stroke received from the player who owns the active turn. */
-  networkStrike(yaw: number, power: number): void {
+  networkStrike(yaw: number, power: number): boolean {
     if (this.state === 'intro') this.beginPlay();
+    if (this.state !== 'aiming' && this.state !== 'charging') return false;
     this.devStrike(yaw, power);
+    return true;
   }
 
   /**
@@ -604,6 +732,37 @@ export class HoleRuntime {
     this.physics.step(dt);
     this.ball.clampSpeed();
     this.ball.postPhysics(dt);
+  }
+
+  private interpolateRemoteBalls(dt: number): void {
+    const alpha = 1 - Math.exp(-22 * dt);
+    for (const [playerId, target] of this.remoteTargets) {
+      const player = this.multiplayerPlayers.get(playerId);
+      if (!player) continue;
+      const body = player.ball.body;
+      body.position.x += (target.position[0] - body.position.x) * alpha;
+      body.position.y += (target.position[1] - body.position.y) * alpha;
+      body.position.z += (target.position[2] - body.position.z) * alpha;
+      body.quaternion.x += (target.quaternion[0] - body.quaternion.x) * alpha;
+      body.quaternion.y += (target.quaternion[1] - body.quaternion.y) * alpha;
+      body.quaternion.z += (target.quaternion[2] - body.quaternion.z) * alpha;
+      body.quaternion.w += (target.quaternion[3] - body.quaternion.w) * alpha;
+      body.quaternion.normalize();
+      body.velocity.set(...target.velocity);
+      body.angularVelocity.set(...target.angularVelocity);
+      player.ball.postPhysics(dt);
+    }
+  }
+
+  private setRemoteReplicaMode(enabled: boolean): void {
+    if (this.remoteReplicaMode === enabled) return;
+    this.remoteReplicaMode = enabled;
+    for (const state of this.multiplayerPlayers.values()) {
+      state.ball.body.type = enabled ? CANNON.Body.STATIC : CANNON.Body.DYNAMIC;
+      state.ball.body.collisionResponse = !enabled;
+      state.ball.body.updateMassProperties();
+      if (!enabled) state.ball.body.wakeUp();
+    }
   }
 
   private updateHoleLogic(dt: number): void {
@@ -1004,6 +1163,14 @@ export class HoleRuntime {
     ball.body.addEventListener('collide', handler as never);
   }
 
+  private disposeMultiplayerBall(ball: Ball): void {
+    const handler = this.collisionHandlers.get(ball);
+    if (handler) ball.body.removeEventListener('collide', handler as never);
+    this.collisionHandlers.delete(ball);
+    this.group.remove(ball.group, ball.shadowMesh);
+    ball.dispose();
+  }
+
   private advanceTurn(): void {
     if (!this.multiplayerEnabled || this.multiplayerOrder.length <= 1) return;
     const currentIndex = this.activePlayerId ? this.multiplayerOrder.indexOf(this.activePlayerId) : -1;
@@ -1032,7 +1199,12 @@ export class HoleRuntime {
     }
     this.collisionHandlers.clear();
     this.unloadHole();
-    this.ball.dispose();
+    for (const state of this.multiplayerPlayers.values()) {
+      this.group.remove(state.ball.group, state.ball.shadowMesh);
+      state.ball.dispose();
+    }
+    this.multiplayerPlayers.clear();
+    this.soloBall.dispose();
     this.club.dispose();
     this.aim.dispose();
     this.trail.dispose();

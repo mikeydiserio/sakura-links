@@ -21,10 +21,41 @@ export interface RoomState {
   courseId: string | null;
 }
 
-export interface MatchEvent {
-  kind: 'start' | 'turn' | 'shot' | 'state';
-  payload: Record<string, unknown>;
+export type NetworkPlayState = 'intro' | 'aiming' | 'charging' | 'rolling' | 'sinking' | 'complete';
+
+export interface ShotCommand {
+  kind: 'shot-command';
+  sequence: number;
+  playerId: string;
+  yaw: number;
+  power: number;
 }
+
+export interface BallSnapshot {
+  playerId: string;
+  position: [number, number, number];
+  quaternion: [number, number, number, number];
+  velocity: [number, number, number];
+  angularVelocity: [number, number, number];
+  strokes: number;
+  holed: boolean;
+  visible: boolean;
+}
+
+export interface MatchSnapshot {
+  kind: 'state-snapshot';
+  sequence: number;
+  /** Seconds since the host started the match. */
+  matchTime: number;
+  holeIndex: number;
+  playState: NetworkPlayState;
+  activePlayerId: string | null;
+  winnerPlayerId: string | null;
+  aimYaw: number;
+  balls: BallSnapshot[];
+}
+
+export type MatchEvent = ShotCommand | MatchSnapshot;
 
 type RoomMessage =
   | { type: 'join-request'; profile: RoomPlayer }
@@ -49,6 +80,10 @@ export class RoomSync {
   private isHost = false;
   private readonly listeners = new Set<(room: RoomState | null) => void>();
   private readonly matchListeners = new Set<(event: MatchEvent, room: RoomState | null) => void>();
+
+  get isHostValue(): boolean {
+    return this.isHost;
+  }
 
   async createRoom(profile: RoomPlayer): Promise<RoomState | null> {
     this.resetNetwork();
@@ -143,11 +178,14 @@ export class RoomSync {
     this.emitRoom();
   }
 
-  broadcastMatchEvent(roomCode: string, event: MatchEvent): void {
-    if (!this.room || this.room.code !== roomCode) return;
-    const message: RoomMessage = { type: 'match-event', roomCode, event };
-    if (this.isHost) this.broadcast(message);
-    else if (this.hostConnection?.open) this.hostConnection.send(message);
+  sendShotCommand(roomCode: string, command: ShotCommand): void {
+    if (this.isHost || !this.room || this.room.code !== roomCode || !this.hostConnection?.open) return;
+    this.hostConnection.send({ type: 'match-event', roomCode, event: command } satisfies RoomMessage);
+  }
+
+  broadcastSnapshot(roomCode: string, snapshot: MatchSnapshot): void {
+    if (!this.isHost || !this.room || this.room.code !== roomCode) return;
+    this.broadcast({ type: 'match-event', roomCode, event: snapshot });
   }
 
   onRoomChange(listener: (room: RoomState | null) => void): () => void {
@@ -187,11 +225,14 @@ export class RoomSync {
         return;
       }
 
-      if (message.type === 'match-event' && message.roomCode === this.room?.code) {
+      if (
+        message.type === 'match-event' &&
+        message.roomCode === this.room?.code &&
+        message.event.kind === 'shot-command'
+      ) {
         const playerId = this.guestConnections.get(connection);
-        if (!playerId || message.event.payload.playerId !== playerId) return;
+        if (!playerId || message.event.playerId !== playerId) return;
         this.matchListeners.forEach((listener) => listener(message.event, this.room));
-        this.broadcast(message, connection);
       }
     });
 
@@ -211,7 +252,7 @@ export class RoomSync {
   }
 
   private receiveMatchEvent(message: Extract<RoomMessage, { type: 'match-event' }>): void {
-    if (message.roomCode !== this.room?.code) return;
+    if (message.roomCode !== this.room?.code || message.event.kind !== 'state-snapshot') return;
     this.matchListeners.forEach((listener) => listener(message.event, this.room));
   }
 
